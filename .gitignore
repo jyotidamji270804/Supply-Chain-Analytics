@@ -1,0 +1,12 @@
+data/*.csv
+data/*.xlsx
+data/*.sqlite
+*.db
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+venv/
+.venv/
+.streamlit/secrets.toml
+.DS_Store
+.vscode/
