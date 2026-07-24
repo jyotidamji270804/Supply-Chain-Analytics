@@ -40,4 +40,12 @@ ISOLATION_FOREST_CONTAMINATION = 0.03  # expected proportion of anomalies
 # Forecasting settings
 # ----------------------------------------------------------------------
 FORECAST_HORIZON_DAYS = 90   # "next 90 days" requirement from the spec
-TRAIN_TEST_SPLIT_RATIO = 0.85  # chronological split point
+TRAIN_TEST_SPLIT_RATIO = 0.85  # chronological split pointARIMA_ORDER = (2, 1, 2)     
+# default (p, d, q), tuned per-series is better
+ARIMA_ORDER = (2, 1, 2)      # default (p, d, q), tuned per-series is better
+ARIMA_ORDER_OVERRIDES = {}   # e.g. {"Groceries": (3, 1, 2)} if a category needs custom tuning
+# ----------------------------------------------------------------------
+# Inventory planning settings
+# ----------------------------------------------------------------------
+DEFAULT_LEAD_TIME_DAYS = 7
+DEFAULT_SERVICE_LEVEL = "95%"
