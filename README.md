@@ -1,159 +1,364 @@
-# 📦 Supply Chain Analytics: Demand Forecasting & Anomaly Detection
+"""
+app.py
+-------
+Streamlit dashboard for the Supply Chain Analytics project.
 
-> An end-to-end time-series analytics pipeline that forecasts product demand and automatically flags supply-chain anomalies — built as part of the Infotact Technical Internship Program (Project 3).
+Three tabs:
+  - Forecast: historical + forecasted demand, confidence interval,
+    model accuracy comparison (Moving Average vs ARIMA)
+  - Anomaly Detection: flagged points on the historical chart, adjustable
+    sensitivity, table of flagged weeks
+  - Trend & Seasonality: decomposition into trend / seasonal / residual
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue)
-![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-red)
-![Status](https://img.shields.io/badge/Status-Complete-brightgreen)
+Run with:
+    streamlit run app/app.py
+"""
 
----
+import sys
+from pathlib import Path
 
-## 🎯 The Problem
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import streamlit as st
 
-Retailers and manufacturers lose money on both sides of the demand curve:
-- **Overestimate demand** → bloated warehouses, tied-up capital, spoilage
-- **Underestimate demand** → stockouts, lost sales, frustrated customers
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-On top of that, sudden anomalies — a viral product trend, a supplier delay —
-often go unnoticed in raw sales data until the financial damage is already done.
+from src.config import RAW_DATA_PATH, FORECAST_HORIZON_DAYS
+from src.preprocessing import load_raw_data, get_clean_weekly_series, decompose_series
+from src.eda import category_summary, data_quality_report
+from src.utils import list_available_categories, week_over_week_change, format_number
+from src.forecasting import evaluate_models, forecast_future
+from src.anomaly_detection import combine_anomaly_flags
 
-**This project solves both problems**: a forecasting model that predicts the
-next 90 days of demand, and an anomaly detection system that flags unusual
-patterns before they become expensive.
 
----
+# ----------------------------------------------------------------------
+# Page setup
+# ----------------------------------------------------------------------
+st.set_page_config(
+    page_title="Supply Chain Demand Forecasting & Anomaly Detection",
+    page_icon="📦",
+    layout="wide",
+)
 
-## 🖥️ What It Does
+# ----------------------------------------------------------------------
+# Custom color theme (injected CSS)
+# ----------------------------------------------------------------------
+PRIMARY = "#6C63FF"     # electric violet
+ACCENT_1 = "#00C2A8"    # teal
+ACCENT_2 = "#FF6B6B"    # coral
+ACCENT_3 = "#FFB84C"    # amber
+BG_CARD = "#1E1E2F"
+CATEGORY_COLORS = [PRIMARY, ACCENT_1, ACCENT_2, ACCENT_3, "#4EA8DE"]
 
-An interactive Streamlit dashboard where a supply chain manager can:
+st.markdown(f"""
+    <style>
+    .metric-card {{
+        background: linear-gradient(135deg, {BG_CARD} 0%, #2A2A40 100%);
+        border-left: 5px solid {PRIMARY};
+        border-radius: 12px;
+        padding: 18px 20px;
+        margin-bottom: 10px;
+    }}
+    .metric-card h3 {{
+        color: #AAAAAA;
+        font-size: 13px;
+        font-weight: 500;
+        margin: 0 0 6px 0;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }}
+    .metric-card p {{
+        color: #FFFFFF;
+        font-size: 26px;
+        font-weight: 700;
+        margin: 0;
+    }}
+    .metric-card span {{
+        font-size: 13px;
+        font-weight: 500;
+    }}
+    div[data-testid="stDataFrame"] {{
+        border-radius: 10px;
+        overflow: hidden;
+    }}
+    </style>
+""", unsafe_allow_html=True)
 
-| Feature | What it shows |
-|---|---|
-| 📈 **Forecast tab** | Historical demand + 90-day forecast with confidence interval, plus a head-to-head accuracy comparison of a moving-average baseline vs. an ARIMA model |
-| 🚨 **Anomaly Detection tab** | Flagged weeks where sales deviated significantly from expected patterns, with an adjustable sensitivity control |
-| 🔍 **Trend & Seasonality tab** | A decomposition view separating raw demand into trend, seasonal pattern, and residual noise |
 
-All three tabs respond live to a product category selector in the sidebar.
+def colored_metric(title, value, subtitle="", color=PRIMARY):
+    st.markdown(f"""
+        <div class="metric-card" style="border-left-color:{color};">
+            <h3>{title}</h3>
+            <p>{value}</p>
+            <span style="color:{color};">{subtitle}</span>
+        </div>
+    """, unsafe_allow_html=True)
 
----
 
-## 🧠 How It Works
-Raw daily sales/inventory data
-│
-▼
-┌───────────────────┐
-│  Preprocessing     │  → reindex to full calendar, interpolate gaps,
-│  (preprocessing.py)│    resample to weekly, decompose trend/seasonality
-└───────────────────┘
-│
-├──────────────────────────┐
-▼                          ▼
-┌───────────────────┐    ┌───────────────────────┐
-│ Anomaly Detection  │    │ Forecasting            │
-│(anomaly_detection.py)  │ (forecasting.py)        │
-│                    │    │                        │
-│ • Rolling Z-score  │    │ • Moving average        │
-│ • IQR (Tukey fence)│    │   baseline               │
-│ • Isolation Forest │    │ • ARIMA model            │
-│                    │    │ • Chronological train/  │
-│ Combined via        │   │   test split             │
-│ majority vote       │   │ • MAPE / RMSE scoring    │
-└───────────────────┘    └───────────────────────┘
-│                          │
-└──────────┬───────────────┘
-▼
-┌─────────────────────┐
-│  Streamlit Dashboard │
-│      (app.py)        │
-└─────────────────────┘
-**Why majority-vote anomaly detection?** Any single method has blind spots —
-Z-score misfires on noisy series, IQR misses gradual shifts, Isolation Forest
-can overfit to random noise. Requiring 2-out-of-3 methods to agree filters out
-each one's individual false positives, directly addressing the "alert fatigue"
-problem real ops teams face with over-sensitive monitoring systems.
+st.title("📦 Supply Chain Analytics")
+st.caption("Demand Forecasting & Anomaly Detection — Infotact Data Analytics Internship, Project 3")
 
-**Why compare ARIMA against a naive baseline?** Because model complexity
-should earn its keep. On this dataset, ARIMA doesn't automatically win — see
-`reports/executive_summary.md` for the actual per-category results.
 
----
+# ----------------------------------------------------------------------
+# Data loading (cached)
+# ----------------------------------------------------------------------
+@st.cache_data
+def get_data():
+    if not RAW_DATA_PATH.exists():
+        st.error("Dataset not found. Run `python data/generate_data.py` first.")
+        st.stop()
+    return load_raw_data()
 
-## 📁 Project Structure
-├── data/
-│   └── generate_data.py         # synthetic 4-year sales/inventory generator
-├── src/
-│   ├── config.py                 # centralized settings
-│   ├── eda.py                    # data quality checks, category summaries
-│   ├── preprocessing.py          # resampling, gap-filling, decomposition
-│   ├── anomaly_detection.py     # Z-score, IQR, Isolation Forest, consensus
-│   ├── forecasting.py            # moving average, ARIMA, MAPE/RMSE
-│   └── utils.py                  # shared helpers
-├── app/
-│   └── app.py                     # Streamlit dashboard
-├── tests/
-│   └── test_anomaly_detection.py # precision/recall vs. injected ground truth
-├── reports/
-│   └── executive_summary.md      # business findings & recommendations
-├── requirements.txt
-└── .gitignore
----
 
-## 🚀 Getting Started
+@st.cache_data
+def get_weekly_series(category: str):
+    df = get_data()
+    return get_clean_weekly_series(df, category)
 
-```bash
-# Clone and enter the repo
-git clone <your-repo-url>
-cd Supply-Chain-Analytics
 
-# Set up environment
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+@st.cache_data
+def get_forecast_evaluation(category: str):
+    series = get_weekly_series(category)
+    return evaluate_models(series, category=category)
 
-# Generate the dataset (deterministic — same output every time via a fixed seed)
-python data/generate_data.py
 
-# Launch the dashboard
-streamlit run app/app.py
-```
+@st.cache_data
+def get_future_forecast(category: str, horizon_days: int):
+    series = get_weekly_series(category)
+    return forecast_future(series, horizon_days=horizon_days, category=category)
 
----
 
-## 🔒 A Note on the Data
+@st.cache_data
+def get_anomalies(category: str, min_votes: int):
+    series = get_weekly_series(category)
+    return combine_anomaly_flags(series, min_votes=min_votes)
 
-The dataset is **synthetically generated**, not scraped or proprietary. Real
-supply chain data is confidential, so `data/generate_data.py` simulates 4 years
-of daily sales and inventory across 5 product categories — with realistic
-trend, weekly and yearly seasonality, and *deliberately injected* anomalies
-(demand spikes, supplier-delay stockouts) so the detection pipeline has real
-signal to find.
 
-Raw data files are excluded from version control (`.gitignore`); the
-generator script is the single source of truth, seeded for reproducibility.
+df = get_data()
+categories = list_available_categories(df)
+summary = category_summary(df)
 
----
+# ----------------------------------------------------------------------
+# Sidebar controls
+# ----------------------------------------------------------------------
+st.sidebar.header("🎛️ Controls")
+category = st.sidebar.selectbox("Product category", categories, index=0)
 
-## ✅ Validation
+horizon_days = st.sidebar.slider(
+    "Forecast horizon (days)", min_value=30, max_value=180, value=FORECAST_HORIZON_DAYS, step=15
+)
 
-Rather than just eyeballing the anomaly chart, `tests/test_anomaly_detection.py`
-measures the detector's precision and recall against the dataset's *known*
-injected anomalies — real accuracy numbers, not a vibe check.
+sensitivity = st.sidebar.select_slider(
+    "Anomaly detection sensitivity",
+    options=["Low (3/3 methods agree)", "Medium (2/3 methods agree)", "High (any 1 method)"],
+    value="Medium (2/3 methods agree)",
+)
+min_votes_map = {
+    "Low (3/3 methods agree)": 3,
+    "Medium (2/3 methods agree)": 2,
+    "High (any 1 method)": 1,
+}
+min_votes = min_votes_map[sensitivity]
 
----
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "**About this app**\n\n"
+    "Synthetic data simulating 4 years of daily sales + inventory across "
+    "5 product categories, with realistic trend, seasonality, and injected "
+    "anomalies (demand spikes & supplier-delay stockouts)."
+)
 
-## 📊 Key Findings
+# ----------------------------------------------------------------------
+# Top-line colorful KPI row
+# ----------------------------------------------------------------------
+weekly_series = get_weekly_series(category)
+cat_summary = summary.loc[category]
+wow_change = week_over_week_change(weekly_series)
+wow_color = ACCENT_1 if wow_change >= 0 else ACCENT_2
 
-See [`reports/executive_summary.md`](reports/executive_summary.md) for the
-full business write-up, including which product categories forecast most
-reliably, where ARIMA beats the baseline (and where it doesn't), and
-recommendations for inventory strategy.
+c1, c2, c3, c4 = st.columns(4)
+with c1:
+    colored_metric("Total Units Sold", format_number(cat_summary["total_units_sold"]), category, PRIMARY)
+with c2:
+    colored_metric("Total Revenue", f"${format_number(cat_summary['total_revenue'])}", category, ACCENT_1)
+with c3:
+    colored_metric("Avg Inventory", format_number(cat_summary["avg_inventory_level"]), category, ACCENT_3)
+with c4:
+    colored_metric("Week-over-Week", f"{wow_change:+.1f}%", "vs prior week", wow_color)
 
----
+st.markdown("---")
 
-## 🛠️ Built With
+# ----------------------------------------------------------------------
+# Colorful category overview (revenue + units share)
+# ----------------------------------------------------------------------
+left, right = st.columns([2, 1])
 
-`Python` · `Pandas` · `NumPy` · `scikit-learn` · `statsmodels` · `Streamlit` · `Plotly`
+with left:
+    st.subheader("💰 Revenue by Category")
+    rev_by_cat = summary.reset_index()[["product_category", "total_revenue"]]
+    fig_rev = px.bar(
+        rev_by_cat, x="product_category", y="total_revenue",
+        color="product_category", color_discrete_sequence=CATEGORY_COLORS,
+        text_auto=".2s",
+    )
+    fig_rev.update_layout(
+        showlegend=False, height=350,
+        xaxis_title="", yaxis_title="Total Revenue ($)",
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig_rev, use_container_width=True)
 
----
+with right:
+    st.subheader("📦 Units Sold Share")
+    units_by_cat = summary.reset_index()[["product_category", "total_units_sold"]]
+    fig_pie = px.pie(
+        units_by_cat, names="product_category", values="total_units_sold",
+        color_discrete_sequence=CATEGORY_COLORS, hole=0.45,
+    )
+    fig_pie.update_layout(height=350, paper_bgcolor="rgba(0,0,0,0)", showlegend=True)
+    st.plotly_chart(fig_pie, use_container_width=True)
 
-*Built for the Infotact Technical Internship Program — Data Analytics Track*
+with st.expander("🔍 Data Quality Report (click to expand)"):
+    st.dataframe(data_quality_report(df), use_container_width=True)
+
+st.markdown("---")
+
+# ----------------------------------------------------------------------
+# Tabs
+# ----------------------------------------------------------------------
+tab1, tab2, tab3 = st.tabs(["📈 Forecast", "🚨 Anomaly Detection", "🔍 Trend & Seasonality"])
+
+with tab1:
+    st.subheader(f"Next {horizon_days} Days Forecasted Demand — {category}")
+
+    future = get_future_forecast(category, horizon_days)
+    eval_results = get_forecast_evaluation(category)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=weekly_series.index, y=weekly_series.values,
+        mode="lines", name="Historical (weekly units sold)",
+        line=dict(color=PRIMARY, width=2),
+    ))
+    fig.add_trace(go.Scatter(
+        x=future.index, y=future.values,
+        mode="lines+markers", name="Forecast",
+        line=dict(color=ACCENT_3, dash="dash", width=2),
+        marker=dict(size=6),
+    ))
+
+    resid_std = eval_results["test"].sub(eval_results["arima_forecast"]).std()
+    if not np.isnan(resid_std):
+        fig.add_trace(go.Scatter(
+            x=list(future.index) + list(future.index[::-1]),
+            y=list(future.values + 1.96 * resid_std) + list((future.values - 1.96 * resid_std)[::-1]),
+            fill="toself", fillcolor="rgba(255,184,76,0.15)",
+            line=dict(color="rgba(255,255,255,0)"), name="95% Confidence Interval",
+            showlegend=True,
+        ))
+
+    fig.update_layout(
+        height=450, xaxis_title="Week", yaxis_title="Units Sold",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("🏆 Model Accuracy Comparison (held-out test set)")
+    m1, m2 = st.columns(2)
+    with m1:
+        colored_metric("Moving Average — MAPE", f"{eval_results['moving_average_mape']:.1f}%", "baseline model", ACCENT_2)
+        colored_metric("Moving Average — RMSE", f"{eval_results['moving_average_rmse']:.0f} units", "baseline model", ACCENT_2)
+    with m2:
+        colored_metric("ARIMA — MAPE", f"{eval_results['arima_mape']:.1f}%", "time-series model", ACCENT_1)
+        colored_metric("ARIMA — RMSE", f"{eval_results['arima_rmse']:.0f} units", "time-series model", ACCENT_1)
+
+    better_model = "ARIMA" if eval_results["arima_mape"] < eval_results["moving_average_mape"] else "Moving Average baseline"
+    st.info(f"💡 On **{category}**, the **{better_model}** currently has the lower forecast error.")
+
+with tab2:
+    st.subheader(f"🚨 Detected Anomalies — {category}")
+    st.caption(f"Sensitivity: {sensitivity}")
+
+    anomalies_df = get_anomalies(category, min_votes)
+    n_anomalies = int(anomalies_df["is_anomaly"].sum())
+
+    fig2 = go.Figure()
+    fig2.add_trace(go.Scatter(
+        x=anomalies_df.index, y=anomalies_df["value"],
+        mode="lines", name="Units Sold", line=dict(color=PRIMARY, width=2),
+    ))
+    flagged = anomalies_df[anomalies_df["is_anomaly"]]
+    fig2.add_trace(go.Scatter(
+        x=flagged.index, y=flagged["value"],
+        mode="markers", name="Flagged Anomaly",
+        marker=dict(color=ACCENT_2, size=13, symbol="x", line=dict(width=2, color="white")),
+    ))
+    fig2.update_layout(
+        height=450, xaxis_title="Week", yaxis_title="Units Sold",
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    )
+    st.plotly_chart(fig2, use_container_width=True)
+
+    a1, a2, a3 = st.columns(3)
+    with a1:
+        colored_metric("Anomalies Flagged", f"{n_anomalies}", f"out of {len(anomalies_df)} weeks", ACCENT_2)
+    with a2:
+        colored_metric("Detection Rate", f"{n_anomalies / len(anomalies_df) * 100:.1f}%", "of all weeks", ACCENT_3)
+    with a3:
+        colored_metric("Consensus Threshold", f"{min_votes} / 3", "methods must agree", ACCENT_1)
+
+    if n_anomalies > 0:
+        st.markdown("**Flagged weeks — investigate: holiday? stockout? viral trend?**")
+        display_df = flagged[["value", "zscore_flag", "iqr_flag", "isolation_forest_flag", "vote_count"]].copy()
+        display_df.index.name = "week"
+        st.dataframe(
+            display_df.style.background_gradient(cmap="Reds", subset=["vote_count"]),
+            use_container_width=True,
+        )
+    else:
+        st.success("No anomalies flagged at the current sensitivity level.")
+
+with tab3:
+    st.subheader(f"🔍 Time Series Decomposition — {category}")
+    st.caption("Separating the raw signal into trend, seasonal pattern, and residual noise.")
+
+    decomposition = decompose_series(weekly_series, period=52)
+
+    fig3 = make_subplots(
+        rows=3, cols=1, shared_xaxes=True,
+        subplot_titles=("📈 Trend", "🔁 Seasonality", "🌀 Residual (noise)"),
+        vertical_spacing=0.08,
+    )
+    fig3.add_trace(go.Scatter(
+        x=decomposition.trend.index, y=decomposition.trend,
+        line=dict(color=ACCENT_1, width=2), name="Trend",
+    ), row=1, col=1)
+    fig3.add_trace(go.Scatter(
+        x=decomposition.seasonal.index, y=decomposition.seasonal,
+        line=dict(color=PRIMARY, width=2), name="Seasonality",
+    ), row=2, col=1)
+    fig3.add_trace(go.Scatter(
+        x=decomposition.resid.index, y=decomposition.resid,
+        line=dict(color=ACCENT_2, width=1.5), name="Residual",
+    ), row=3, col=1)
+
+    fig3.update_layout(
+        height=700, showlegend=False,
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig3, use_container_width=True)
+
+    st.markdown(f"""
+    **How to read this:**
+    - **Trend** — the underlying long-term direction of demand for {category}, stripped of seasonal noise.
+    - **Seasonality** — the repeating yearly pattern (e.g. holiday bumps, seasonal dips).
+    - **Residual** — what's left after removing trend and seasonality; spikes here often line up with the anomalies flagged in the previous tab.
+    """)
+
+st.markdown("---")
+st.caption("Built for the Infotact Technical Internship Program — Supply Chain Analytics")
