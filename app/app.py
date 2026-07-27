@@ -94,7 +94,7 @@ def colored_metric(title, value, subtitle="", color=PRIMARY):
     """, unsafe_allow_html=True)
 
 
-st.title("📦 Supply Chain Analytics")
+st.title("Supply Chain Analytics")
 st.caption("Demand Forecasting & Anomaly Detection")
 
 
@@ -163,7 +163,7 @@ min_votes_map = {
 min_votes = min_votes_map[sensitivity]
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("📦 Inventory Planning Inputs")
+st.sidebar.subheader("Inventory Planning Inputs")
 lead_time_days = st.sidebar.number_input(
     "Supplier lead time (days)", min_value=1, max_value=60, value=DEFAULT_LEAD_TIME_DAYS
 )
@@ -205,7 +205,7 @@ st.markdown("---")
 left, right = st.columns([2, 1])
 
 with left:
-    st.subheader("💰 Revenue by Category")
+    st.subheader("Revenue by Category")
     rev_by_cat = summary.reset_index()[["product_category", "total_revenue"]]
     fig_rev = px.bar(
         rev_by_cat, x="product_category", y="total_revenue",
@@ -220,7 +220,7 @@ with left:
     st.plotly_chart(fig_rev, use_container_width=True)
 
 with right:
-    st.subheader("📦 Units Sold Share")
+    st.subheader("Units Sold Share")
     units_by_cat = summary.reset_index()[["product_category", "total_units_sold"]]
     fig_pie = px.pie(
         units_by_cat, names="product_category", values="total_units_sold",
@@ -229,7 +229,7 @@ with right:
     fig_pie.update_layout(height=350, paper_bgcolor="rgba(0,0,0,0)", showlegend=True)
     st.plotly_chart(fig_pie, use_container_width=True)
 
-with st.expander("🔍 Data Quality Report (click to expand)"):
+with st.expander("Data Quality Report (click to expand)"):
     st.dataframe(data_quality_report(df), use_container_width=True)
 
 st.markdown("---")
@@ -288,7 +288,7 @@ with tab1:
     st.info(f"💡 On **{category}**, the **{better_model}** currently has the lower forecast error.")
 
 with tab2:
-    st.subheader(f"🚨 Detected Anomalies — {category}")
+    st.subheader(f"Detected Anomalies — {category}")
     st.caption(f"Sensitivity: {sensitivity}")
 
     anomalies_df = get_anomalies(category, min_votes)
@@ -331,7 +331,7 @@ with tab2:
 
         csv_data = display_df.to_csv().encode("utf-8")
         st.download_button(
-            "⬇️ Download flagged anomalies as CSV",
+            "⬇Download flagged anomalies as CSV",
             data=csv_data,
             file_name=f"{category.replace(' ', '_').lower()}_anomalies.csv",
             mime="text/csv",
@@ -340,14 +340,14 @@ with tab2:
         st.success("No anomalies flagged at the current sensitivity level.")
 
 with tab3:
-    st.subheader(f"🔍 Time Series Decomposition — {category}")
+    st.subheader(f"Time Series Decomposition — {category}")
     st.caption("Separating the raw signal into trend, seasonal pattern, and residual noise.")
 
     decomposition = decompose_series(weekly_series, period=52)
 
     fig3 = make_subplots(
         rows=3, cols=1, shared_xaxes=True,
-        subplot_titles=("📈 Trend", "🔁 Seasonality", "🌀 Residual (noise)"),
+        subplot_titles=("Trend", "Seasonality", "Residual (noise)"),
         vertical_spacing=0.08,
     )
     fig3.add_trace(go.Scatter(
@@ -377,7 +377,7 @@ with tab3:
     """)
 
 with tab4:
-    st.subheader(f"🧮 Inventory Planning — {category}")
+    st.subheader(f" Inventory Planning — {category}")
     st.caption("Translating demand variability into a concrete reorder decision.")
 
     daily_demand = get_daily_series(category)
@@ -404,12 +404,12 @@ with tab4:
         reorder_point=reorder_info["reorder_point_units"],
     )
 
-    st.subheader("📋 Order Recommendation")
+    st.subheader("Order Recommendation")
     st.caption(f"Based on a simulated current inventory of {current_inventory_pct}% of the reorder point — adjust in the sidebar.")
 
     if order_rec["should_reorder_now"]:
         st.error(
-            f"🔴 **REORDER NOW** — current inventory ({order_rec['current_inventory']:.0f} units) "
+            f" **REORDER NOW** — current inventory ({order_rec['current_inventory']:.0f} units) "
             f"is at or below the reorder point ({order_rec['reorder_point']:.0f} units)."
         )
         colored_metric(
