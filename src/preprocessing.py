@@ -16,10 +16,19 @@ from statsmodels.tsa.seasonal import seasonal_decompose, DecomposeResult
 
 from src.config import RAW_DATA_PATH
 
-
-def load_raw_data(path=RAW_DATA_PATH) -> pd.DataFrame:
-    """Load the raw CSV and parse dates."""
+def load_raw_data(path=RAW_DATA_PATH, validate: bool = True) -> pd.DataFrame:
+    """Load the raw CSV, parse dates, and validate before returning."""
     df = pd.read_csv(path, parse_dates=["date"])
+
+    if validate:
+        from src.validation import run_all_validations, DataValidationError
+        from src.config import PRODUCT_CATEGORIES
+
+        report = run_all_validations(df, expected_categories=PRODUCT_CATEGORIES)
+        failures = {k: v for k, v in report.items() if v != "PASS"}
+        if failures:
+            raise DataValidationError(f"Data validation failed: {failures}")
+
     return df
 
 
