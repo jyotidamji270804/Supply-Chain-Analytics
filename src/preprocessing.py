@@ -18,7 +18,11 @@ from src.config import RAW_DATA_PATH
 
 def load_raw_data(path=RAW_DATA_PATH, validate: bool = True) -> pd.DataFrame:
     """Load the raw CSV, parse dates, and validate before returning."""
+    from src.logger import get_logger
+    logger = get_logger(__name__)
+
     df = pd.read_csv(path, parse_dates=["date"])
+    logger.info(f"Loaded {len(df):,} rows from {path}")
 
     if validate:
         from src.validation import run_all_validations, DataValidationError
@@ -27,7 +31,9 @@ def load_raw_data(path=RAW_DATA_PATH, validate: bool = True) -> pd.DataFrame:
         report = run_all_validations(df, expected_categories=PRODUCT_CATEGORIES)
         failures = {k: v for k, v in report.items() if v != "PASS"}
         if failures:
+            logger.error(f"Data validation failed: {failures}")
             raise DataValidationError(f"Data validation failed: {failures}")
+        logger.info("Data validation passed all checks")
 
     return df
 

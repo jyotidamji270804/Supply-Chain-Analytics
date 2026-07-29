@@ -1,7 +1,7 @@
 """
 forecasting.py
 ----------------
-Week 3: Demand Forecasting module.
+Demand Forecasting module.
 
   - Chronological train/test split (never shuffle time series data!)
   - Baseline: simple moving average
@@ -23,6 +23,9 @@ from src.config import (
     ARIMA_ORDER_OVERRIDES,
     FORECAST_HORIZON_DAYS,
 )
+from src.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def get_arima_order(category: str = None):
@@ -86,7 +89,7 @@ def evaluate_models(series: pd.Series, ratio: float = TRAIN_TEST_SPLIT_RATIO, ca
         arima_pred.index = test.index
     except Exception as e:
         arima_pred = ma_pred.copy()  # graceful fallback if ARIMA fails to converge
-        print(f"[warning] ARIMA fit failed for category={category!r}, falling back to moving average: {e}")
+        logger.warning(f"ARIMA fit failed for category={category!r}, falling back to moving average: {e}")
 
     return {
         "train": train,
@@ -111,7 +114,7 @@ def forecast_future(series: pd.Series, horizon_days: int = FORECAST_HORIZON_DAYS
     try:
         return arima_forecast(series, steps, category=category)
     except Exception as e:
-        print(f"[warning] ARIMA future forecast failed for category={category!r}, using moving average: {e}")
+        logger.warning(f"ARIMA future forecast failed for category={category!r}, using moving average: {e}")
         return moving_average_forecast(series, steps)
 
 
@@ -121,11 +124,11 @@ if __name__ == "__main__":
 
     df = load_raw_data()
 
-    print("=== Smoke test: forecasting across all categories ===\n")
+    logger.info("=== Smoke test: forecasting across all categories ===")
     for category in PRODUCT_CATEGORIES:
         weekly = get_clean_weekly_series(df, category)
         results = evaluate_models(weekly, category=category)
         future = forecast_future(weekly, category=category)
         winner = "ARIMA" if results["arima_mape"] < results["moving_average_mape"] else "Moving Average"
-        print(f"{category:<20} MA MAPE={results['moving_average_mape']:.1f}%  "
-              f"ARIMA MAPE={results['arima_mape']:.1f}%  -> winner: {winner}")
+        logger.info(f"{category:<20} MA MAPE={results['moving_average_mape']:.1f}%  "
+                    f"ARIMA MAPE={results['arima_mape']:.1f}%  -> winner: {winner}")
