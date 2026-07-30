@@ -1,4 +1,10 @@
-
+"""
+validation.py
+---------------
+Data validation layer: checks that incoming data meets the assumptions the
+rest of the pipeline depends on, and fails loudly (with a clear message)
+instead of silently producing garbage results downstream.
+"""
 
 import pandas as pd
 
@@ -87,13 +93,13 @@ if __name__ == "__main__":
     from src.preprocessing import load_raw_data
     from src.config import PRODUCT_CATEGORIES
 
-    df = load_raw_data()
+    df = load_raw_data(validate=False)
     report = run_all_validations(df, expected_categories=PRODUCT_CATEGORIES)
 
     print("=== Data Validation Report ===")
     for check, result in report.items():
-        status_icon = "✅" if result == "PASS" else "❌"
-        print(f"{status_icon} {check}: {result}")
+        status_icon = "PASS" if result == "PASS" else "FAIL"
+        print(f"[{status_icon}] {check}: {result}")
 
     all_passed = all(v == "PASS" for v in report.values())
     if not all_passed:
