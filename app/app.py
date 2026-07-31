@@ -31,6 +31,7 @@ from src.eda import category_summary, data_quality_report
 from src.utils import list_available_categories, week_over_week_change, format_number
 from src.forecasting import evaluate_models, forecast_future
 from src.anomaly_detection import combine_anomaly_flags
+from src.alerts import process_anomalies_for_alerts
 from src.inventory_planning import calculate_reorder_point, recommend_order_quantity, SERVICE_LEVEL_Z_SCORES
 
 
@@ -136,6 +137,11 @@ def get_future_forecast(category: str, horizon_days: int):
 def get_anomalies(category: str, min_votes: int):
     series = get_weekly_series(category)
     return combine_anomaly_flags(series, min_votes=min_votes)
+
+@st.cache_data
+def get_alerts(category: str, min_votes: int):
+    anomalies_df = get_anomalies(category, min_votes)
+    return process_anomalies_for_alerts(anomalies_df, category=category, channel="dashboard")
 
 
 df = get_data()
@@ -331,14 +337,26 @@ with tab2:
 
         csv_data = display_df.to_csv().encode("utf-8")
         st.download_button(
-            "⬇Download flagged anomalies as CSV",
+            "⬇️ Download flagged anomalies as CSV",
             data=csv_data,
             file_name=f"{category.replace(' ', '_').lower()}_anomalies.csv",
             mime="text/csv",
         )
+
+        st.markdown("---")
+        st.subheader("📢 Simulated Alert Feed")
+        st.caption("What a real notification system would have sent to a Supply Chain Manager for each flagged week.")
+
+        alerts = get_alerts(category, min_votes)
+        for alert in alerts:
+            severity = "HIGH" if "[HIGH]" in alert["message"] else ("MEDIUM" if "[MEDIUM]" in alert["message"] else "LOW")
+            color = ACCENT_2 if severity == "HIGH" else (ACCENT_3 if severity == "MEDIUM" else TEAL)
+
+            with st.expander(f"🔔 {severity} priority alert — {alert['timestamp'][:19]}"):
+                st.code(alert["message"], language=None)
     else:
         st.success("No anomalies flagged at the current sensitivity level.")
-
+        
 with tab3:
     st.subheader(f"Time Series Decomposition — {category}")
     st.caption("Separating the raw signal into trend, seasonal pattern, and residual noise.")
