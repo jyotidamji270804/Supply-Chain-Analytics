@@ -1,3 +1,9 @@
+"""
+test_validation.py
+---------------------
+Unit tests for src/validation.py -- confirms the validators actually catch
+bad data (not just pass on good data, which would be a weak test).
+"""
 
 import sys
 from pathlib import Path
@@ -30,7 +36,7 @@ def good_df():
 
 
 def test_validate_schema_passes_on_good_data(good_df):
-    validate_schema(good_df)  # should not raise
+    validate_schema(good_df)
 
 
 def test_validate_schema_catches_missing_column(good_df):
