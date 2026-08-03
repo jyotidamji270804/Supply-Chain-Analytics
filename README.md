@@ -3,6 +3,8 @@ app.py
 -------
 Streamlit dashboard for the Supply Chain Analytics project.
 
+🔗 **[Live Dashboard](https://supply-chain-analytics-g6trv3ggudiqzmpw9inbmb.streamlit.app/)**
+
 Three tabs:
   - Forecast: historical + forecasted demand, confidence interval,
     model accuracy comparison (Moving Average vs ARIMA)
